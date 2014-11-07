@@ -96,6 +96,8 @@ OracleResourcesFolder="${AppPackageFolder}"/Contents/Resources
 # set path to Info.plist in bundle
 InfoPlistFile="${AppPackageFolder}"/Contents/Info.plist
 
+# set path to the Plugins folder
+PluginsFolder="${AppPackageFolder}"/Contents/Plugins
 
 
 
@@ -148,7 +150,6 @@ if [ $exitcode -eq 0 ]; then
 		# AppPackageRoot is the standard WorkingDirectory when the script is started
 		WorkingDirectory="${AppPackageRoot}"
 	fi
-	echo "Working Directory: '$WorkingDirectory'"
 	
 	# read the MainClass name
 	JVMMainClass=`/usr/libexec/PlistBuddy -c "print :Java:MainClass" "${InfoPlistFile}" 2> /dev/null`
@@ -216,22 +217,44 @@ fi
 # find installed Java versions
 #################################
 
-# first check system variable "$JAVA_HOME"
-if [ -n "$JAVA_HOME" ] ; then
-	JAVACMD="$JAVA_HOME/bin/java"
+# first see if there's an embedded JVM
 
-# otherwise check "/usr/libexec/java_home" symlinks
-elif [ -x /usr/libexec/java_home ] && [ -d "`/usr/libexec/java_home 2> /dev/null`" ] ; then
-	JAVACMD="`/usr/libexec/java_home 2> /dev/null`/bin/java"
+JAVACMD=
 
-# otherwise check Java standard symlink (old Apple Java)
-elif [ -h /Library/Java/Home ]; then
-	JAVACMD="/Library/Java/Home/bin/java"
+echo "Beginning JVM test"
 
-# fallback: public JRE plugin (Oracle Java)
-else
-	JAVACMD="/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home/bin/java"
+if [ -d "$PluginsFolder" ]; then
+	JREPath=`/usr/libexec/PlistBuddy -c "print :Java:JREPath" "${InfoPlistFile}" 2> /dev/null`
+	if [ -z "$JREPath" ]; then
+		JREPath="jdk"
+	fi
+	if [ -d "$PluginsFolder/$JREPath" ]; then
+		JAVACMD="$PluginsFolder/$JREPath/bin/java"
+	fi
 fi
+echo "Ending JVM test"
+
+if [ -z "$JAVACMD" ]; then
+
+	# check system variable "$JAVA_HOME"
+	if [ -n "$JAVA_HOME" ] ; then
+		JAVACMD="$JAVA_HOME/bin/java"
+
+	# otherwise check "/usr/libexec/java_home" symlinks
+	elif [ -x /usr/libexec/java_home ] && [ -d "`/usr/libexec/java_home 2> /dev/null`" ] ; then
+		JAVACMD="`/usr/libexec/java_home 2> /dev/null`/bin/java"
+
+	# otherwise check Java standard symlink (old Apple Java)
+	elif [ -h /Library/Java/Home ]; then
+		JAVACMD="/Library/Java/Home/bin/java"
+
+	# fallback: public JRE plugin (Oracle Java)
+	else
+		JAVACMD="/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home/bin/java"
+	fi
+	
+fi
+echo "JavaCMD=$JAVACMD"
 
 # fallback fallback: /usr/bin/java
 # but this would prompt to install deprecated Apple Java 6
@@ -268,19 +291,18 @@ elif [ -f "$JAVACMD" ] && [ -x "$JAVACMD" ] ; then
 	#	- JVM default options
 	#	- main class
 	#	- JVM arguments
-	CMDLINE="\"$JAVACMD\" \
-			-cp \"${JVMClassPath}\" \
-			-Xdock:icon=\"${ResourcesFolder}/${CFBundleIconFile}\" \
-			-Xdock:name=\"${CFBundleName}\" \
-			${JVMOptions:+$JVMOptions }\
-			${JVMDefaultOptions:+$JVMDefaultOptions }\
-			${JVMMainClass}\
-			${JVMArguments:+ $JVMArguments}"
 			
 	if [ "${JVMDebug}" == "true" ]; then
 		echo "Working Directory: $(pwd)"
-		echo "Command line:"
-		echo "$CMDLINE"
+		echo "Java Command: $JAVACMD"
+		echo "Class Path: $JVMClassPath"
+		echo "Options:"
+		echo "  -Xdock:icon=\"${ResourcesFolder}/${CFBundleIconFile}\""
+		echo "  -Xdock:name=\"${CFBundleName}\""
+		echo "  $JVMOptions"
+		echo "  $JVMDefaultOptions"
+		echo "Main Class: $JVMMainClass"
+		echo "Arguments: $JVMArguments"
 	fi
 
 	exec "$JAVACMD" \

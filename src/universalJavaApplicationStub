@@ -110,6 +110,8 @@ CFBundleName=`/usr/libexec/PlistBuddy -c "print :CFBundleName" "${InfoPlistFile}
 # read the icon file name
 CFBundleIconFile=`/usr/libexec/PlistBuddy -c "print :CFBundleIconFile" "${InfoPlistFile}"`
 
+# see if we are debugging
+JVMDebug=`/usr/libexec/PlistBuddy -c "print :JVMDebug" "${InfoPlistFile}"`
 
 # check Info.plist for Apple style Java keys -> if key :Java is present, parse in apple mode
 /usr/libexec/PlistBuddy -c "print :Java" "${InfoPlistFile}" > /dev/null 2>&1
@@ -117,6 +119,14 @@ exitcode=$?
 
 # read Info.plist in Apple style if exit code returns 0 (true, :Java key is present)
 if [ $exitcode -eq 0 ]; then
+
+	# set Java and Resources folder
+	JavaFolder="${AppleJavaFolder}"
+	ResourcesFolder="${AppleResourcesFolder}"
+
+	APP_PACKAGE="${AppPackageFolder}"
+	JAVAROOT="${AppleJavaFolder}"
+	USER_HOME="`eval echo ~`"
 
 	# read the Java WorkingDirectory
 	JVMWorkDir=`/usr/libexec/PlistBuddy -c "print :Java:WorkingDirectory" "${InfoPlistFile}" 2> /dev/null | xargs`
@@ -132,26 +142,19 @@ if [ $exitcode -eq 0 ]; then
 		WorkingDirectory="~"
 		
 	elif [[ ! -z ${JVMWorkDir} ]]; then
-		WorkingDirectory="${JVMWorkDir}"
+		WorkingDirectory=`eval "echo ${JVMWorkDir}"`
 		
 	else
 		# AppPackageRoot is the standard WorkingDirectory when the script is started
 		WorkingDirectory="${AppPackageRoot}"
 	fi
+	echo "Working Directory: '$WorkingDirectory'"
 	
-	# set Java and Resources folder
-	JavaFolder="${AppleJavaFolder}"
-	ResourcesFolder="${AppleResourcesFolder}"
-
-	APP_PACKAGE="${AppPackageFolder}"
-	JAVAROOT="${AppleJavaFolder}"
-	USER_HOME="`eval echo ~`"
-
 	# read the MainClass name
 	JVMMainClass=`/usr/libexec/PlistBuddy -c "print :Java:MainClass" "${InfoPlistFile}" 2> /dev/null`
 
 	# read the JVM Options
-	JVMOptions=`/usr/libexec/PlistBuddy -c "print :Java:Properties" "${InfoPlistFile}" 2> /dev/null | grep " =" | sed 's/^ */-D/g' | tr '\n' ' ' | sed 's/  */ /g' | sed 's/ = /=/g' | xargs`
+	JVMOptions=`/usr/libexec/PlistBuddy -c "print :Java:Properties" "${InfoPlistFile}" 2> /dev/null | grep " =" | sed 's/^ */-D/g' | sed 's/  */ /g' | sed 's/ = /=/g' | sed 's/ /\\\\ /g' | tr '\n' ' '`
 
 	# read StartOnMainThread
 	JVMStartOnMainThread=`/usr/libexec/PlistBuddy -c "print :Java:StartOnMainThread" "${InfoPlistFile}" 2> /dev/null`
@@ -265,6 +268,21 @@ elif [ -f "$JAVACMD" ] && [ -x "$JAVACMD" ] ; then
 	#	- JVM default options
 	#	- main class
 	#	- JVM arguments
+	CMDLINE="\"$JAVACMD\" \
+			-cp \"${JVMClassPath}\" \
+			-Xdock:icon=\"${ResourcesFolder}/${CFBundleIconFile}\" \
+			-Xdock:name=\"${CFBundleName}\" \
+			${JVMOptions:+$JVMOptions }\
+			${JVMDefaultOptions:+$JVMDefaultOptions }\
+			${JVMMainClass}\
+			${JVMArguments:+ $JVMArguments}"
+			
+	if [ "${JVMDebug}" == "true" ]; then
+		echo "Working Directory: $(pwd)"
+		echo "Command line:"
+		echo "$CMDLINE"
+	fi
+
 	exec "$JAVACMD" \
 			-cp "${JVMClassPath}" \
 			-Xdock:icon="${ResourcesFolder}/${CFBundleIconFile}" \

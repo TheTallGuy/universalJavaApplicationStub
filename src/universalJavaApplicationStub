@@ -46,6 +46,12 @@
 
 
 
+# Debugging
+nslog() {
+	syslog -s -k Facility com.apple.console Level Notice Sender universalJavaApplicationStub Message "$1"
+	echo $1
+}
+
 
 #
 # resolve symlinks
@@ -112,9 +118,6 @@ CFBundleName=`/usr/libexec/PlistBuddy -c "print :CFBundleName" "${InfoPlistFile}
 # read the icon file name
 CFBundleIconFile=`/usr/libexec/PlistBuddy -c "print :CFBundleIconFile" "${InfoPlistFile}"`
 
-# see if we are debugging
-JVMDebug=`/usr/libexec/PlistBuddy -c "print :JVMDebug" "${InfoPlistFile}"`
-
 # check Info.plist for Apple style Java keys -> if key :Java is present, parse in apple mode
 /usr/libexec/PlistBuddy -c "print :Java" "${InfoPlistFile}" > /dev/null 2>&1
 exitcode=$?
@@ -129,6 +132,9 @@ if [ $exitcode -eq 0 ]; then
 	APP_PACKAGE="${AppPackageFolder}"
 	JAVAROOT="${AppleJavaFolder}"
 	USER_HOME="`eval echo ~`"
+
+	# see if we are debugging
+	JVMDebug=`/usr/libexec/PlistBuddy -c "print :Java:JVMDebug" "${InfoPlistFile}"`
 
 	# read the Java WorkingDirectory
 	JVMWorkDir=`/usr/libexec/PlistBuddy -c "print :Java:WorkingDirectory" "${InfoPlistFile}" 2> /dev/null | xargs`
@@ -221,18 +227,18 @@ fi
 
 JAVACMD=
 
-echo "Beginning JVM test"
+nslog "Beginning JVM test"
 
 if [ -d "$PluginsFolder" ]; then
-	JREPath=`/usr/libexec/PlistBuddy -c "print :Java:JREPath" "${InfoPlistFile}" 2> /dev/null`
-	if [ -z "$JREPath" ]; then
-		JREPath="jdk"
+	JVMRuntime=`/usr/libexec/PlistBuddy -c "print :Java:JVMRuntime" "${InfoPlistFile}" 2> /dev/null`
+	if [ -z "$JVMRuntime" ]; then
+		JVMRuntime="jdk"
 	fi
-	if [ -d "$PluginsFolder/$JREPath" ]; then
-		JAVACMD="$PluginsFolder/$JREPath/bin/java"
+	if [ -d "$PluginsFolder/$JVMRuntime" ]; then
+		JAVACMD="$PluginsFolder/$JVMRuntime/bin/java"
 	fi
 fi
-echo "Ending JVM test"
+nslog "Ending JVM test"
 
 if [ -z "$JAVACMD" ]; then
 
@@ -254,7 +260,9 @@ if [ -z "$JAVACMD" ]; then
 	fi
 	
 fi
-echo "JavaCMD=$JAVACMD"
+
+#JAVACMD=`echo $JAVACMD | sed 's/ /\\\\ /g'`
+nslog "JavaCMD=$JAVACMD"
 
 # fallback fallback: /usr/bin/java
 # but this would prompt to install deprecated Apple Java 6
@@ -269,60 +277,64 @@ echo "JavaCMD=$JAVACMD"
 # display error message if MainClassName is empty
 if [ -z ${JVMMainClass} ]; then
 	# display error message with applescript
+	echo "Can't find main class."
 	osascript -e "tell application \"System Events\" to display dialog \"ERROR launching '${CFBundleName}'!\n\n'MainClass' isn't specified!\nJava application cannot be started!\" with title \"${CFBundleName}\" buttons {\" OK \"} default button 1 with icon path to resource \"${CFBundleIconFile}\" in bundle (path to me)"
 	# exit with error
 	exit 1
 
 
 # check whether $JAVACMD is a file and executable
-elif [ -f "$JAVACMD" ] && [ -x "$JAVACMD" ] ; then
+else 
+	if [ -f "$JAVACMD" ] && [ -x "$JAVACMD" ] ; then
 
-	# enable drag&drop to the dock icon
-	export CFProcessPath="$0"
+		# enable drag&drop to the dock icon
+		export CFProcessPath="$0"
 
-	# change to Working Directory based upon Apple/Oracle Plist info
-	cd "${WorkingDirectory}"
+		# change to Working Directory based upon Apple/Oracle Plist info
+		cd "${WorkingDirectory}"
 
-	# execute Java and set
-	#	- classpath
-	#	- dock icon
-	#	- application name
-	#	- JVM options
-	#	- JVM default options
-	#	- main class
-	#	- JVM arguments
+		# execute Java and set
+		#	- classpath
+		#	- dock icon
+		#	- application name
+		#	- JVM options
+		#	- JVM default options
+		#	- main class
+		#	- JVM arguments
 			
-	if [ "${JVMDebug}" == "true" ]; then
-		echo "Working Directory: $(pwd)"
-		echo "Java Command: $JAVACMD"
-		echo "Class Path: $JVMClassPath"
-		echo "Options:"
-		echo "  -Xdock:icon=\"${ResourcesFolder}/${CFBundleIconFile}\""
-		echo "  -Xdock:name=\"${CFBundleName}\""
-		echo "  $JVMOptions"
-		echo "  $JVMDefaultOptions"
-		echo "Main Class: $JVMMainClass"
-		echo "Arguments: $JVMArguments"
+		if [ "${JVMDebug}" == "true" ]; then
+			nslog "Working Directory: $(pwd)"
+			nslog "Java Command: $JAVACMD"
+			nslog "Class Path: $JVMClassPath"
+			nslog "Options:"
+			nslog "  -Xdock:icon=\"${ResourcesFolder}/${CFBundleIconFile}\""
+			nslog "  -Xdock:name=\"${CFBundleName}\""
+			nslog "  $JVMOptions"
+			nslog "  $JVMDefaultOptions"
+			nslog "Main Class: $JVMMainClass"
+			nslog "Arguments: $JVMArguments"
+		fi
+
+		"$JAVACMD" \
+				-cp "${JVMClassPath}" \
+				-Xdock:icon="${ResourcesFolder}/${CFBundleIconFile}" \
+				-Xdock:name="${CFBundleName}" \
+				${JVMOptions:+$JVMOptions }\
+				${JVMDefaultOptions:+$JVMDefaultOptions }\
+				${JVMMainClass}\
+				${JVMArguments:+ $JVMArguments}
+
+
+	else
+
+		# display error message with applescript
+		echo "'java' is either not a file or not executable."
+		osascript -e "tell application \"System Events\" to display dialog \"ERROR launching '${CFBundleName}'!\n\nYou need to have JAVA installed on your Mac!\nVisit http://java.com for more information...\" with title \"${CFBundleName}\" buttons {\" OK \"} default button 1 with icon path to resource \"${CFBundleIconFile}\" in bundle (path to me)"
+
+		# and open java.com
+		open http://java.com
+
+		# exit with error
+		exit 1
 	fi
-
-	exec "$JAVACMD" \
-			-cp "${JVMClassPath}" \
-			-Xdock:icon="${ResourcesFolder}/${CFBundleIconFile}" \
-			-Xdock:name="${CFBundleName}" \
-			${JVMOptions:+$JVMOptions }\
-			${JVMDefaultOptions:+$JVMDefaultOptions }\
-			${JVMMainClass}\
-			${JVMArguments:+ $JVMArguments}
-
-
-else
-
-	# display error message with applescript
-	osascript -e "tell application \"System Events\" to display dialog \"ERROR launching '${CFBundleName}'!\n\nYou need to have JAVA installed on your Mac!\nVisit http://java.com for more information...\" with title \"${CFBundleName}\" buttons {\" OK \"} default button 1 with icon path to resource \"${CFBundleIconFile}\" in bundle (path to me)"
-
-	# and open java.com
-	open http://java.com
-
-	# exit with error
-	exit 1
 fi
